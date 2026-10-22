@@ -6,3 +6,9 @@ def apply_discount(price, percent):
 
 def order_total(items):
     return round(sum(i["price"] * i["qty"] for i in items), 2)
+
+def tax(amount, country):
+    if country == "PT":
+        return amount * 0.23
+    else:
+        return amount * 0.23
