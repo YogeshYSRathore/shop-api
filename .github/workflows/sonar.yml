@@ -1,0 +1,77 @@
+name: sonar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  id-token: write   # lets the job request a GitHub OIDC token for AWS
+  contents: read
+
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sonar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # full history so Sonar can detect new code
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Run tests with coverage
+        run: |
+          pip install -q -r requirements-dev.txt
+          python -m pytest --cov --cov-report=xml -q
+
+      - name: Log in to AWS with OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Read Sonar token from Parameter Store
+        run: |
+          token=$(aws ssm get-parameter \
+            --name /shop-api/sonar-token \
+            --with-decryption \
+            --query Parameter.Value --output text)
+          echo "::add-mask::$token"
+          echo "SONAR_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Find this runner's public IP
+        id: ip
+        run: echo "ip=$(curl -fsS https://checkip.amazonaws.com)" >> "$GITHUB_OUTPUT"
+
+      - name: Open port 9000 for this runner only
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ vars.SONAR_SG_ID }}" \
+            --protocol tcp --port 9000 \
+            --cidr "${{ steps.ip.outputs.ip }}/32"
+
+      - name: Scan and wait for the Quality Gate
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+      - name: Close port 9000
+        if: always() && steps.ip.outputs.ip != ''
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ vars.SONAR_SG_ID }}" \
+            --protocol tcp --port 9000 \
+            --cidr "${{ steps.ip.outputs.ip }}/32" || true
