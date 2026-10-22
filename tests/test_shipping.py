@@ -15,3 +15,7 @@ def test_is_admin(monkeypatch):
 def test_cache_key_is_a_sha256_hex_digest():
     assert len(cache_key(1)) == 64
     assert cache_key(1) != cache_key(2)
+
+
+
+
