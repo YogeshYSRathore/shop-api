@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  id-token: write   # lets the job request a GitHub OIDC token for AWS
+  id-token: write  # lets the job request a GitHub OIDC token for AWS
   contents: read
 
 concurrency:
